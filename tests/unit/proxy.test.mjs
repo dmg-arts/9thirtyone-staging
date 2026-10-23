@@ -151,7 +151,12 @@ check('joining a proxy detachment never asks for Drive', () => {
   const connect = JOIN.indexOf('adapters.drive.connect');
   if (guard < 0) throw new Error('the join screen has no proxy branch');
   if (connect > 0 && connect < guard) throw new Error('Drive is reached before the proxy check');
-  if (!/return navigate\('\/student'\)/.test(JOIN.slice(guard, connect > 0 ? connect : undefined))) {
+  // What matters is that the proxy branch *returns* before anything can reach
+  // Drive. Where it returns to is a product decision and not this check's
+  // business: pinning it to '/student' meant that fixing the join landing on
+  // 23 Oct surfaced here as an OAuth scope regression, which is a false alarm
+  // in the one suite that should never cry wolf about scopes.
+  if (!/\breturn navigate\(/.test(JOIN.slice(guard, connect > 0 ? connect : undefined))) {
     throw new Error('the proxy branch falls through to the Drive path');
   }
 });

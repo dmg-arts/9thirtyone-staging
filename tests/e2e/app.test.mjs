@@ -88,6 +88,11 @@ const signInFails = (email, role = null) => page.evaluate(async ([e, r]) => {
   catch (err) { return err.message; }
 }, [email, role]);
 
+const setFlag = (on) => page.evaluate((v) => {
+  if (v) localStorage.setItem('nine31.directsignin.v1', '1');
+  else localStorage.removeItem('nine31.directsignin.v1');
+}, on);
+
 const ADMIN_EMAIL = 'capt.reyes@det025.edu';
 const STUDENT_EMAIL = 'mia.alvarez@gmail.com';
 
@@ -263,6 +268,58 @@ await step('the student page requires a sign-in', async () => {
 await step('an instructor cannot sign in through the student door', async () => {
   const msg = await signInFails(ADMIN_EMAIL, 'student');
   if (!/does not have student access/i.test(msg)) throw new Error(`message was: ${msg}`);
+});
+
+await step('the wrong door names the right one instead of advising an administrator', async () => {
+  // The refusal above is correct and was always correct. What was wrong was what
+  // the screen did with it: `isRosterRefusal` matched the role-mismatch message
+  // along with the genuinely unfixable ones, so an instructor on the cadet gate
+  // was told to "ask your cadre - cadets are added to the roster by an
+  // administrator". Wrong on both counts, and the first thing a real detachment
+  // sent an email about.
+  //
+  // Driven through the UI and asserted against the rendered view on purpose.
+  // signInWithGoogle's behaviour never changed, so a test that reads its error
+  // would pass against the bug — the whole defect lived in the view.
+  // The local backend has no Client ID, so the only way to put a real roster
+  // refusal on screen here is the direct sign-in box. Cleared in a finally: a
+  // throw above it would otherwise leave the flag on for every later step.
+  await setFlag(true);
+  try {
+    await page.evaluate(() => sessionStorage.clear());
+    await page.goto(`${BASE}#/student`, { waitUntil: 'networkidle' });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('.page-title:has-text("Cadet sign-in")', { timeout: 8000 });
+
+    await page.fill('input[type=email]', ADMIN_EMAIL);
+    await page.click('.btn:has-text("Sign in without Google")');
+    // Not '.notice--warn': the "Google sign-in is not configured" notice on this
+    // screen is already one, so that selector matched before the click had
+    // rendered anything and the assertion read the old page.
+    await page.waitForSelector('.notice__title:has-text("Wrong sign-in for this account")',
+      { timeout: 8000 });
+
+    const shown = await page.textContent('#view');
+    if (/added to the roster by an administrator/i.test(shown)) {
+      throw new Error('still sending a role mismatch to an administrator');
+    }
+    if (!/Go to the Instructor Panel/.test(shown)) {
+      throw new Error(`no working door offered; screen read: ${shown.slice(0, 300)}`);
+    }
+
+    // And it has to actually go somewhere: an offer to a view that then refuses
+    // them too would be a worse dead end than the one it replaced.
+    await page.click('.btn--primary:has-text("Go to the Instructor Panel")');
+    await page.waitForSelector('.page-title:has-text("Instructor Panel")', { timeout: 8000 });
+  } finally {
+    // Both of these are restorations, not cleanup for its own sake. The flag
+    // would otherwise stay on for every later step, and the following step
+    // reloads whatever page this one left behind — walking out on the
+    // Instructor Panel made the cadet's own feedback list fail to appear, and
+    // took nine unrelated steps down with it.
+    await setFlag(false);
+    await page.goto(`${BASE}#/student`, { waitUntil: 'networkidle' });
+  }
 });
 
 await step('the cadet signs in and sees their feedback', async () => {
@@ -3095,11 +3152,6 @@ await step('mobile: anchored scale does not overflow', async () => {
 
 /** The access toggle specifically, not the first checkbox on the page. */
 const ACCESS_TOGGLE = 'section:has(> .section-title:text-is("Access")) input[type=checkbox]';
-
-const setFlag = (on) => page.evaluate((v) => {
-  if (v) localStorage.setItem('nine31.directsignin.v1', '1');
-  else localStorage.removeItem('nine31.directsignin.v1');
-}, on);
 
 await step('the access flag grants no roles by itself', async () => {
   // This is the whole point of 0.16. The flag used to make every role check

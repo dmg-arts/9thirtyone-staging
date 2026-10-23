@@ -13,12 +13,13 @@
  */
 
 import { el, icon, field, notice, toast, remount, spinner } from '../util.js';
-import { ROLES, isDirectSignIn } from '../config.js';
+import { ROLES, ROLE_LABELS, isDirectSignIn, effectiveRoles } from '../config.js';
 import { signInWithGoogle, signInAsDeveloper, hasAnyAccount } from '../auth.js';
 import { renderSignInButton } from '../google-identity.js';
 import { connection } from '../state.js';
 import { warmProxy } from '../storage/proxy.js';
 import { navigate } from '../router.js';
+import { PANELS } from '../panels.js';
 
 // Keyed by every role that can reach this screen. The Cadre Panel calls
 // renderLogin with ROLES.cadre and the commander's space with ROLES.commander
@@ -40,6 +41,30 @@ const DENIED_HELP = {
     + 'database administrator.',
   [ROLES.admin]: 'Ask an existing administrator to add this account.',
 };
+
+/**
+ * The view this account could have signed into.
+ *
+ * Only for the refusal that is purely about which gate the person is standing
+ * at: the roster accepted them, holding roles that work, and this screen asked
+ * for a different one. Ordered most capable first, so a cadre member is offered
+ * the Cadre Panel rather than the instructor one their role also implies.
+ *
+ * Reads `effectiveRoles` rather than the roster's literal list, so the door
+ * offered here is one Home would also show them once they are through it.
+ * Returns null for an account holding nothing routable, which falls back to the
+ * ordinary refusal rather than offering a door that leads nowhere.
+ */
+function doorFor(heldRoles) {
+  const held = effectiveRoles(heldRoles);
+  const doors = [
+    [ROLES.cadre, PANELS.cadre.path, 'the Cadre Panel'],
+    [ROLES.instructor, PANELS.instructor.path, 'the Instructor Panel'],
+    [ROLES.student, '/student', 'your feedback'],
+  ];
+  const match = doors.find(([r]) => held.includes(r));
+  return match ? { path: match[1], title: match[2] } : null;
+}
 
 /**
  * Renders the gate and calls `onSuccess(account)` once the signed-in email
@@ -69,7 +94,27 @@ export async function renderLogin(root, role, title, onSuccess) {
   // evidence for, and the real message above it was read as noise.
   const isRosterRefusal = (message) => /roster|does not have|deactivated/i.test(message);
 
-  const fail = (message) => {
+  const fail = (message, err = null) => {
+    // An account refused only for holding the wrong role is not a failure the
+    // person can act on by asking anyone. Say which view does work and put the
+    // button to it right here, rather than reporting a dead end and leaving them
+    // to guess that another panel would have let them in.
+    const held = err?.heldRoles;
+    const door = held?.length ? doorFor(held) : null;
+    if (door) {
+      const labels = held.map((r) => ROLE_LABELS[r] || r).join(', ');
+      remount(error, notice('warn', 'Wrong sign-in for this account',
+        el('p', {}, message),
+        el('p', { class: 'field__hint' },
+          `This account is on the roster as ${labels}, so nothing needs to change `
+          + '\u2014 it just cannot sign in on this screen.'),
+        el('button', {
+          type: 'button', class: 'btn btn--primary',
+          onclick: () => navigate(door.path),
+        }, `Go to ${door.title}`)));
+      error.hidden = false;
+      return;
+    }
     remount(error, notice('danger', 'Not signed in',
       el('p', {}, message),
       isRosterRefusal(message) ? el('p', { class: 'field__hint' }, DENIED_HELP[role]) : null));
@@ -141,7 +186,7 @@ export async function renderLogin(root, role, title, onSuccess) {
     try {
       finish(await signInWithGoogle(profile, role, rawToken, { onSlow }));
     } catch (err) {
-      fail(err.message);
+      fail(err.message, err);
     } finally {
       // In a finally, not after the await: a refusal has to clear the spinner
       // too, or the screen says it is still signing in underneath the reason it
@@ -219,7 +264,7 @@ export async function renderLogin(root, role, title, onSuccess) {
     await renderSignInButton(buttonHost, {
       clientId,
       onCredential: (profile, raw) => accept(profile, raw),
-      onError: (err) => fail(err.message),
+      onError: (err) => fail(err.message, err),
     });
   } catch (err) {
     remount(buttonHost, notice('danger', 'Could not start Google sign-in', el('p', {}, err.message)));
@@ -252,7 +297,7 @@ function developerSignIn(role, finish, fail, startProgress, stopProgress) {
     try {
       finish(await signInAsDeveloper(input.value, role));
     } catch (err) {
-      fail(err.message);
+      fail(err.message, err);
     } finally {
       stopProgress();
       button.disabled = false;
