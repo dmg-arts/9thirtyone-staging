@@ -3,7 +3,7 @@
  * start the service worker.
  */
 
-import { APP } from './config.js';
+import { APP, isStagingHost } from './config.js';
 import { $, el, icon, toast, mount, remount } from './util.js';
 import { applySettings, connection, isConfigured } from './state.js';
 import { db } from './storage/index.js';
@@ -83,8 +83,18 @@ function buildAppBar() {
     el('span', { class: 'conn__label' }, 'checking'),
     el('span', { class: 'visually-hidden' }, 'Database connection status'));
 
+  // A persistent ribbon, not a dismissible toast. Staging is installed on real
+  // phones during 1.4, where it has an icon and no address bar and is otherwise
+  // indistinguishable from the live detachment's app. Anything that can be
+  // dismissed will be dismissed, and then the one signal that this is not real
+  // data is gone for the rest of the session.
+  const stagingRibbon = isStagingHost()
+    ? el('span', { class: 'appbar__staging', title: location.origin }, 'STAGING')
+    : null;
+
   remount(bar, 
     back, brand,
+    stagingRibbon,
     el('span', { class: 'appbar__spacer' }),
     buildQueuePill(),
     status,

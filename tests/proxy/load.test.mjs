@@ -31,7 +31,7 @@
  */
 
 import {
-  createProxy, validToken, seedRoster, account, ops, resetOps,
+  createProxy, validToken, seedRoster, account, ops, resetOps, net,
 } from './harness.mjs';
 
 let failures = 0;
@@ -172,6 +172,38 @@ check('one cadet’s whole drill night is two posts and one token verification',
     throw new Error(`${proxy.fetches.length} tokeninfo calls for one cadet's session`);
   }
   console.log(`       one cadet: ${cost} Drive operations, ${proxy.fetches.length} token verification`);
+});
+
+/*
+ * The baseline stage 2 will be judged against, recorded before it is moved.
+ *
+ * Stage 2 replaces sequential `getFilesByName` reads with batched Drive REST
+ * calls over `UrlFetchApp`. That will make `ops()` fall sharply, and `ops()`
+ * alone cannot tell a genuine saving from the same work relocated onto a
+ * surface it does not count. So both numbers are pinned here while the old
+ * implementation is still the one running: afterwards, a drop in operations is
+ * only real if these have not blown up to pay for it.
+ *
+ * The assertions are ceilings rather than equalities. An exact count would fail
+ * on every unrelated change and be relaxed until it meant nothing.
+ */
+check('outbound HTTP has a baseline, so stage 2 cannot move cost and call it a saving', () => {
+  const proxy = detachment();
+  resetOps();
+
+  proxy.post({ action: 'bundle', idToken: as(cadet(1)) });
+  submit(proxy, cadet(1));
+
+  const { calls, bytes } = net();
+  const cost = ops();
+
+  // One tokeninfo verification for the session, and nothing else leaves the
+  // script today: every read is Apps Script's own Drive binding.
+  if (calls !== 1) throw new Error(`${calls} outbound requests for one cadet, expected 1`);
+  if (bytes > 4096) throw new Error(`${bytes} bytes off the wire for one cadet, budget 4096`);
+
+  console.log(`       baseline before stage 2: ${cost} Drive operations, `
+    + `${calls} outbound request, ${bytes} bytes`);
 });
 
 check('a whole flight submitting costs what forty-five of one cadet costs', () => {

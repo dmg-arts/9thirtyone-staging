@@ -216,6 +216,20 @@ h1[tabindex="-1"]:focus { outline: none; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .appbar__spacer { flex: 1; }
+
+/* Staging only. Loud on purpose: this is the one thing distinguishing an
+   installed staging build from the detachment's real app on the same phone. */
+.appbar__staging {
+  flex: none;
+  padding: 2px var(--sp-2);
+  border-radius: 4px;
+  background: #b4005a;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
 .appbar__brand { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
 .appbar__mark {
   width: 2rem; height: 2rem; flex: none; border-radius: var(--radius-sm);

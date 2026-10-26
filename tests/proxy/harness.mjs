@@ -56,8 +56,28 @@ const bump = () => { opCount += 1; };
 /** Drive operations counted so far. */
 export const ops = () => opCount;
 
-/** Zero the counter, so a test can measure one action rather than a run. */
-export const resetOps = () => { opCount = 0; };
+/*
+ * Outbound HTTP, counted separately and deliberately not folded into opCount.
+ *
+ * `ops()` counts the Apps Script Drive surface. From stage 2 of 1.4 the
+ * expensive reads move to the Drive REST API over `UrlFetchApp`, and if the two
+ * were summed a rewrite could halve `ops()` while doing strictly more work —
+ * the suite reporting an improvement that is an artefact of what it chose to
+ * measure. They are different cost models (quota'd API calls against bytes on
+ * the wire) and summing them would produce a number that means nothing.
+ *
+ * Bytes as well as calls, because `fetchAll` makes calls cheap and payloads
+ * large: one batched request for 130 documents is a single call and is not
+ * therefore free.
+ */
+let netCalls = 0;
+let netBytes = 0;
+
+/** Outbound HTTP so far: `{ calls, bytes }`. */
+export const net = () => ({ calls: netCalls, bytes: netBytes });
+
+/** Zero the counters, so a test can measure one action rather than a run. */
+export const resetOps = () => { opCount = 0; netCalls = 0; netBytes = 0; };
 
 class FakeFile {
   constructor(name, content) {
@@ -340,12 +360,26 @@ export function createProxy({
     UrlFetchApp: {
       fetch(url) {
         fetches.push(url);
+        netCalls += 1;
         const token = decodeURIComponent(url.split('id_token=')[1] || '');
         const claims = byJwt.get(token);
+        const body = JSON.stringify(claims || { error: 'invalid_token' });
+        netBytes += body.length;
         return {
           getResponseCode: () => (claims ? 200 : 400),
-          getContentText: () => JSON.stringify(claims || { error: 'invalid_token' }),
+          getContentText: () => body,
         };
+      },
+      /**
+       * Present so stage 2 has something to run against, and counted the same
+       * way. Apps Script issues these concurrently, which is the entire point
+       * of using it — so this counts one call per request rather than one per
+       * batch, because the quota and the bytes are both per request. A batch
+       * that looks like a single operation here would hide exactly the cost
+       * the stage is meant to be reducing.
+       */
+      fetchAll(requests) {
+        return (requests || []).map((req) => this.fetch(typeof req === 'string' ? req : req.url));
       },
     },
 

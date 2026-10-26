@@ -26,6 +26,37 @@
 export const GOOGLE_CLIENT_ID =
   '536562746421-uf9hu736m0bq0t41s0ck8h9fmu9ggkos.apps.googleusercontent.com';
 
+/**
+ * Whether this copy of the app is a staging build rather than the real one.
+ *
+ * Staging exists so 1.4 can be tested on real phones, which means it will be
+ * *installed* — an icon, no address bar, and at that point pixel-identical to
+ * production. The whole risk of having a staging host is somebody reading a
+ * stale staging screen as the live detachment, so staging has to announce
+ * itself somewhere that survives being installed.
+ *
+ * **Fail-safe by construction.** Production and local development are named;
+ * everything else is treated as staging. A host nobody listed gets marked,
+ * which is the harmless direction — the damaging one is an unrecognised host
+ * silently passing for production, and that cannot happen here. Adding a second
+ * production hostname is a deliberate edit to one array.
+ *
+ * Local hosts are exempt so the browser suite and day-to-day development are
+ * not run against a ribbon that is not what is being tested.
+ *
+ * Takes the hostname as an argument so it can be tested as a function rather
+ * than only observed in a browser.
+ */
+const PRODUCTION_HOSTS = ['9thirtyone.app', 'www.9thirtyone.app'];
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', '[::1]', ''];
+
+export function isStagingHost(hostname = globalThis.location?.hostname ?? '') {
+  const host = String(hostname).toLowerCase();
+  if (PRODUCTION_HOSTS.includes(host)) return false;
+  if (LOCAL_HOSTS.includes(host)) return false;
+  return true;
+}
+
 export const APP = {
   name: '9ThirtyOne',
   shortName: '9ThirtyOne',
